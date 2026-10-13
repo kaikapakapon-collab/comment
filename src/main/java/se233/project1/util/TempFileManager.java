@@ -1,0 +1,70 @@
+package se233.project1.util;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.stream.Stream;
+
+/** Owns one application-wide temp root that is deleted on JVM shutdown. */
+/**
+ * สรุปหน้าที่ไฟล์: สร้าง จัดการ และลบโฟลเดอร์/ไฟล์ชั่วคราวที่ใช้ระหว่างการแปลงภาพ
+ */
+public final class TempFileManager {
+
+    private static final Object LOCK = new Object();
+    private static Path root;
+
+    private TempFileManager() {
+    }
+
+    // หน้าที่: สร้าง/คืนโฟลเดอร์ temp หลักของโปรแกรม
+
+    public static Path root() throws IOException {
+        synchronized (LOCK) {
+            if (root == null) {
+                Path created = Files.createTempDirectory("se233-vectorizer-");
+                root = created;
+                Runtime.getRuntime().addShutdownHook(
+                        new Thread(() -> deleteRecursivelyQuietly(created), "temp-cleanup"));
+            }
+            return root;
+        }
+    }
+
+    /** Deletes the whole temp root right now (called when the application closes). */
+    // หน้าที่: ลบไฟล์ชั่วคราวทั้งหมด
+    public static void cleanup() {
+        Path toDelete;
+        synchronized (LOCK) {
+            toDelete = root;
+            root = null;
+        }
+        deleteRecursivelyQuietly(toDelete);
+    }
+
+    /** Creates a fresh uniquely named directory below the temp root. */
+    // หน้าที่: สร้างโฟลเดอร์ย่อยชั่วคราว
+    public static Path createSubDir(String prefix) throws IOException {
+        return Files.createTempDirectory(root(), prefix);
+    }
+
+    // หน้าที่: ลบโฟลเดอร์และไฟล์ภายในโดยไม่โยน Exception
+
+    public static void deleteRecursivelyQuietly(Path dir) {
+        if (dir == null || !Files.exists(dir)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                    // best effort cleanup
+                }
+            });
+        } catch (IOException ignored) {
+            // best effort cleanup
+        }
+    }
+}
